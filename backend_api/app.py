@@ -36,7 +36,20 @@ def init_mongodb():
             mongo_client.admin.command('ping')
             db = mongo_client[MONGODB_DB]
             coleccion = db[MONGODB_COLLECTION]
-            print(f"[API] MongoDB connectado: {MONGODB_URI}")
+            
+            # Create indexes for better query performance and to prevent duplicates
+            try:
+                # Index on timestamp for sorting
+                coleccion.create_index("timestamp")
+                # Index on zona for filtering
+                coleccion.create_index("zona")
+                # Compound index for efficient queries
+                coleccion.create_index([("zona", 1), ("timestamp", -1)])
+                print(f"[API] Índices de MongoDB creados/validados")
+            except Exception as idx_error:
+                print(f"[API] Aviso al crear índices: {idx_error}")
+            
+            print(f"[API] MongoDB conectado: {MONGODB_URI}")
             return True
         except Exception as e:
             print(f"[API] Intento {intento + 1}/{max_retries} - Error: {e}")
@@ -50,6 +63,9 @@ def init_mongodb():
 def logs():
     """Get latest 20 readings from all zones"""
     try:
+        if coleccion is None:
+            return jsonify({"error": "Database not connected"}), 503
+        
         docs = list(
             coleccion.find({}, {"_id": 0})
             .sort("timestamp", DESCENDING)
@@ -57,31 +73,51 @@ def logs():
         )
         return jsonify(docs), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[API] Error en /logs: {e}")
+        return jsonify({"error": str(e), "details": "Internal server error"}), 500
 
 
 @app.route('/logs/<zona>', methods=['GET'])
 def logs_por_zona(zona):
     """Get latest 20 readings from specific zone"""
     try:
+        if coleccion is None:
+            return jsonify({"error": "Database not connected"}), 503
+        
+        if not zona or zona.strip() == "":
+            return jsonify({"error": "Zona parameter cannot be empty"}), 400
+        
         docs = list(
             coleccion.find({"zona": zona}, {"_id": 0})
             .sort("timestamp", DESCENDING)
             .limit(20)
         )
+        
+        if not docs:
+            return jsonify({"message": f"No data found for zona: {zona}", "data": []}), 200
+        
         return jsonify(docs), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[API] Error en /logs/{zona}: {e}")
+        return jsonify({"error": str(e), "details": "Internal server error"}), 500
 
 
 @app.route('/zonas', methods=['GET'])
 def zonas():
     """Get list of unique zones with data"""
     try:
+        if coleccion is None:
+            return jsonify({"error": "Database not connected"}), 503
+        
         resultado = coleccion.distinct("zona")
+        
+        if not resultado:
+            return jsonify({"message": "No zones found", "data": []}), 200
+        
         return jsonify(sorted(resultado)), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"[API] Error en /zonas: {e}")
+        return jsonify({"error": str(e), "details": "Internal server error"}), 500
 
 
 @app.route('/health', methods=['GET'])

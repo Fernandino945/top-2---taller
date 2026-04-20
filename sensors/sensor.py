@@ -53,12 +53,20 @@ def publish_sensor_data():
     client.on_disconnect = on_disconnect
     client.on_publish = on_publish
 
-    # Connect to broker
-    try:
-        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
-    except Exception as e:
-        print(f"[Sensor {SENSOR_ID}] Error al conectar: {e}")
-        return
+    # Connect to broker with retries
+    max_retries = 5
+    for intento in range(max_retries):
+        try:
+            client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+            print(f"[Sensor {SENSOR_ID}] Conectando en intento {intento + 1}...")
+            break
+        except Exception as e:
+            print(f"[Sensor {SENSOR_ID}] Intento {intento + 1}/{max_retries} - Error: {e}")
+            if intento < max_retries - 1:
+                time.sleep(2 ** intento)  # Exponential backoff
+            else:
+                print(f"[Sensor {SENSOR_ID}] No se pudo conectar después de {max_retries} intentos")
+                return
 
     # Start network loop (non-blocking)
     client.loop_start()
@@ -67,8 +75,25 @@ def publish_sensor_data():
     time.sleep(2)
 
     # Publish sensor data in loop
+    consecutive_errors = 0
     try:
         while True:
+            # Check if still connected
+            if not client.is_connected():
+                print(f"[Sensor {SENSOR_ID}] Desconectado, intentando reconectar...")
+                try:
+                    client.reconnect()
+                    consecutive_errors = 0
+                except Exception as e:
+                    print(f"[Sensor {SENSOR_ID}] Error al reconectar: {e}")
+                    consecutive_errors += 1
+                    if consecutive_errors > 10:
+                        print(f"[Sensor {SENSOR_ID}] Demasiados errores de reconexión, esperando 5s...")
+                        time.sleep(5)
+                        consecutive_errors = 0
+                    time.sleep(2)
+                    continue
+            
             # Generate random sensor data
             temperatura = round(random.uniform(10, 35), 2)
             humedad = round(random.uniform(30, 90), 2)
@@ -81,12 +106,18 @@ def publish_sensor_data():
             }
 
             # Publish with QoS 1 (At least once)
-            result = client.publish(TOPIC, json.dumps(data), qos=1)
+            try:
+                result = client.publish(TOPIC, json.dumps(data), qos=1)
 
-            if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                print(f"[Sensor {SENSOR_ID} / {ZONA}] Enviado: {json.dumps(data)}")
-            else:
-                print(f"[Sensor {SENSOR_ID}] Error al enviar: {result.rc}")
+                if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                    print(f"[Sensor {SENSOR_ID} / {ZONA}] Enviado: {json.dumps(data)}")
+                    consecutive_errors = 0
+                else:
+                    print(f"[Sensor {SENSOR_ID}] Error al enviar: {result.rc}")
+                    consecutive_errors += 1
+            except Exception as e:
+                print(f"[Sensor {SENSOR_ID}] Excepción al publicar: {e}")
+                consecutive_errors += 1
 
             # Wait 3 seconds before next publish
             time.sleep(3)
@@ -99,4 +130,8 @@ def publish_sensor_data():
 
 
 if __name__ == "__main__":
-    publish_sensor_data()
+    try:
+        publish_sensor_data()
+    except Exception as e:
+        print(f"[Sensor {SENSOR_ID}] Error fatal: {e}")
+        exit(1)

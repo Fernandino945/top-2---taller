@@ -72,14 +72,26 @@ def on_message(client, userdata, msg):
     try:
         # Extract zone from topic: campo/<zona>/sensores
         topic_parts = msg.topic.split("/")
-        if len(topic_parts) < 2:
-            print(f"[Subscriber] Topic inválido: {msg.topic}")
+        if len(topic_parts) != 3 or topic_parts[2] != "sensores":
+            print(f"[Subscriber] Topic inválido (esperado campo/[zona]/sensores): {msg.topic}")
             return
 
         zona = topic_parts[1]
+        if not zona or zona.strip() == "":
+            print(f"[Subscriber] Zona vacía en topic: {msg.topic}")
+            return
 
         # Decode message
-        payload = json.loads(msg.payload.decode())
+        try:
+            payload = json.loads(msg.payload.decode())
+        except json.JSONDecodeError:
+            print(f"[Subscriber] Error decodificando JSON: {msg.payload}")
+            return
+
+        # Validate required fields
+        if "temperatura" not in payload or "humedad" not in payload:
+            print(f"[Subscriber] Payload incompleto (falta temperatura o humedad): {msg.payload}")
+            return
 
         # Add metadata
         payload["zona"] = zona
@@ -87,15 +99,20 @@ def on_message(client, userdata, msg):
         payload["topic"] = msg.topic
         payload["qos"] = msg.qos
 
-        # Insert into MongoDB
-        if coleccion is not None:
+        # Insert into MongoDB with error handling
+        if coleccion is None:
+            print(f"[{zona.upper()}] Error: MongoDB no conectado")
+            return
+
+        try:
             result = coleccion.insert_one(payload)
             print(f"[{zona.upper()}] Guardado QoS {msg.qos} | {json.dumps(payload)}")
-        else:
-            print(f"[{zona.upper()}] Error: MongoDB no conectado")
+        except Exception as db_error:
+            print(f"[{zona.upper()}] Error insertando en MongoDB: {db_error}")
+            # Reintentar conexión
+            if not conectar_mongodb():
+                print(f"[Subscriber] No se pudo reconectar a MongoDB")
 
-    except json.JSONDecodeError:
-        print(f"[Subscriber] Error decodificando JSON: {msg.payload}")
     except Exception as e:
         print(f"[Subscriber] Error procesando mensaje: {e}")
 
