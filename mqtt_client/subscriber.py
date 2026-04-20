@@ -106,7 +106,7 @@ def on_message(client, userdata, msg):
 
         try:
             result = coleccion.insert_one(payload)
-            print(f"[{zona.upper()}] Guardado QoS {msg.qos} | {json.dumps(payload)}")
+            print(f"[{zona.upper()}] Guardado QoS {msg.qos} | {json.dumps(payload, default=str)}")
         except Exception as db_error:
             print(f"[{zona.upper()}] Error insertando en MongoDB: {db_error}")
             # Reintentar conexión
