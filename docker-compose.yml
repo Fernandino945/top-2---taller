@@ -1,0 +1,149 @@
+services:
+  # MQTT Broker - Eclipse Mosquitto
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: agro_mqtt_broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mqtt_broker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - agro_network
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 1883 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+
+  # Sensor - Tomate
+  sensor_tomate:
+    build: ./sensors
+    container_name: agro_sensor_tomate
+    environment:
+      - SENSOR_ID=1
+      - ZONA=tomate
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt:
+        condition: service_started
+    networks:
+      - agro_network
+    restart: unless-stopped
+
+
+  # Sensor - Zanahoria
+  sensor_zanahoria:
+    build: ./sensors
+    container_name: agro_sensor_zanahoria
+    environment:
+      - SENSOR_ID=2
+      - ZONA=zanahoria
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt:
+        condition: service_started
+    networks:
+      - agro_network
+    restart: unless-stopped
+
+
+  # Sensor - Maíz
+  sensor_maiz:
+    build: ./sensors
+    container_name: agro_sensor_maiz
+    environment:
+      - SENSOR_ID=3
+      - ZONA=maiz
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt:
+        condition: service_started
+    networks:
+      - agro_network
+    restart: unless-stopped
+
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:latest
+    container_name: agro_mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DB=agro_iot
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - agro_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+
+  # MQTT Subscriber
+  subscriber:
+    build: ./mqtt_client
+    container_name: agro_subscriber
+    environment:
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+      - MONGODB_URI=mongodb://mongodb:27017/
+    depends_on:
+      mqtt:
+        condition: service_started
+      mongodb:
+        condition: service_healthy
+    networks:
+      - agro_network
+    restart: unless-stopped
+
+
+  # Flask REST API
+  api:
+    build: ./backend_api
+    container_name: agro_api
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - FLASK_ENV=production
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - agro_network
+    restart: unless-stopped
+
+
+  # Streamlit Dashboard
+  dashboard:
+    build: ./dashboard
+    container_name: agro_dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://localhost:5000
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+    depends_on:
+      - api
+    networks:
+      - agro_network
+    restart: unless-stopped
+
+
+networks:
+  agro_network:
+    driver: bridge
+
+
+volumes:
+  mongodb_data:
