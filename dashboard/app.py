@@ -14,7 +14,8 @@ import pytz
 
 
 # Configuration
-API_URL = os.getenv("API_URL", "http://localhost:5000")
+API_DISPLAY_URL = os.getenv("API_URL", "http://localhost:5000")  # URL shown to user (from browser)
+API_REQUEST_URL = API_DISPLAY_URL.replace("localhost", "api")  # URL for internal Docker requests
 MQTT_BROKER = os.getenv("MQTT_BROKER", "mqtt")
 MQTT_PORT = os.getenv("MQTT_PORT", "1883")
 
@@ -26,7 +27,7 @@ COLORS = {"tomate": "red", "zanahoria": "orange", "maiz": "gold"}
 def fetch_zones():
     """Fetch available zones from API"""
     try:
-        r = requests.get(f"{API_URL}/zonas", timeout=5)
+        r = requests.get(f"{API_REQUEST_URL}/zonas", timeout=5)
         if r.status_code == 503:
             st.error("❌ Base de datos no conectada")
             return []
@@ -53,7 +54,7 @@ def fetch_zones():
 def fetch_logs(zona=None):
     """Fetch sensor logs from API"""
     try:
-        url = f"{API_URL}/logs/{zona}" if zona else f"{API_URL}/logs"
+        url = f"{API_REQUEST_URL}/logs/{zona}" if zona else f"{API_REQUEST_URL}/logs"
         r = requests.get(url, timeout=5)
         
         if r.status_code == 503:
@@ -222,7 +223,11 @@ def main():
         
         with st.expander("ℹ️ Información del Sistema"):
             st.write(f"**MQTT Broker:** {MQTT_BROKER}:{MQTT_PORT}")
-            st.write(f"**API Endpoint:** {API_URL}")
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**API Endpoint:** {API_DISPLAY_URL}")
+            with col2:
+                st.link_button("🔗 Acceder", API_DISPLAY_URL, use_container_width=True)
             st.write(f"**Estado:** Conectado ✓")
         
         st.divider()
